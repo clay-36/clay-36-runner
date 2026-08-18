@@ -1,0 +1,365 @@
+name: Update daily news feed
+
+on:
+  schedule:
+    # Every 2 hours at minute 20
+    - cron: '20 */2 * * *'
+
+  workflow_dispatch:
+
+# The workflow repo itself only needs read access.
+# Write access to the PRIVATE repo comes from PRIVATE_REPO_TOKEN.
+permissions:
+  contents: read
+
+concurrency:
+  group: everyside-feed-refresh
+  cancel-in-progress: false
+
+jobs:
+  update-feed:
+    name: Update Everyside Feed
+    runs-on: ubuntu-latest
+
+    # If your secrets are stored in the "Prod" environment
+    environment: Prod
+
+    env:
+      # ============================================================
+      # Non-secret configuration
+      # ============================================================
+
+      DISCOVERY_STORY_CONCURRENCY: 1
+      URL_RESOLUTION_CONCURRENCY: 1
+      PUPPETEER_GLOBAL_CONCURRENCY: 1
+
+      URL_RESOLUTION_TIMEOUT_MS: 45000
+      PAGE_CLOSE_TIMEOUT_MS: 3000
+      PUPPETEER_SLOT_TIMEOUT_MS: 30000
+
+      WORKFLOW_HEARTBEAT_MS: 30000
+
+      GEMINI_MODEL: gemini-3-flash-preview
+      GEMINI_THINKING_LEVEL: low
+      GEMINI_REQUEST_TIMEOUT_MS: 20000
+
+      AI_EDITORIAL: 0
+
+      FULL_ARTICLE_STORY_CONCURRENCY: 4
+      FULL_ARTICLE_FETCH_CONCURRENCY: 10
+      FULL_ARTICLE_AI_BATCH_SIZE: 5
+      FULL_ARTICLE_STORY_LIMIT: 12
+
+      GEMINI_SUMMARY_ATTEMPTS: 1
+
+      # URL resolver
+      PUPPETEER_BROWSER_ENABLED: 1
+      PUPPETEER_NAV_TIMEOUT_MS: 30000
+      PUPPETEER_SETTLE_MS: 2500
+      URL_RESOLUTION_VERBOSE: 1
+
+    steps:
+
+      # ============================================================
+      # 1. Checkout PRIVATE repository
+      # ============================================================
+
+      - name: Checkout private Everyside repository
+        uses: actions/checkout@v6
+        with:
+          repository: YOUR_USERNAME/YOUR_PRIVATE_REPO
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      # ============================================================
+      # 2. Setup Node
+      # ============================================================
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # ============================================================
+      # 3. Install Puppeteer
+      # ============================================================
+
+      - name: Install Puppeteer
+        run: npm install puppeteer --no-save
+
+      - name: Install Chrome for Puppeteer
+        run: npx puppeteer browsers install chrome
+
+      - name: Check Puppeteer
+        run: |
+          node -e "import('puppeteer').then(async ({default:p}) => {
+            const b = await p.launch({
+              headless:true,
+              args:['--no-sandbox','--disable-setuid-sandbox']
+            });
+
+            console.log('Chrome launched successfully');
+            console.log('Version:', await b.version());
+
+            await b.close();
+          })"
+
+      # ============================================================
+      # 4. Check Gemini
+      # ============================================================
+
+      - name: Check Gemini configuration
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY found"
+          else
+            echo "GEMINI_API_KEY not found; using local summaries"
+          fi
+
+          echo "Full-article model: $GEMINI_MODEL ($GEMINI_THINKING_LEVEL thinking)"
+          echo "Puppeteer resolver: $PUPPETEER_BROWSER_ENABLED"
+          echo "Puppeteer timeout: $PUPPETEER_NAV_TIMEOUT_MS ms"
+
+      # ============================================================
+      # 5. Update News
+      # ============================================================
+
+      - name: Update news
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/update-news.mjs
+
+      # ============================================================
+      # 6. Branding / Analytics
+      # ============================================================
+
+      - name: Ensure page branding and analytics
+        run: |
+          node scripts/add-favicon.mjs
+          node scripts/add-story-footers.mjs
+          node scripts/add-analytics-events.mjs
+
+      # ============================================================
+      # 7. Pagination
+      # ============================================================
+
+      - name: Synchronize generated pagination
+        run: node scripts/sync-story-pagination.mjs
+
+      # ============================================================
+      # 8. Tests
+      # ============================================================
+
+      - name: Test generated story consistency
+        run: |
+          node scripts/test-full-article-analysis.mjs || true
+          node scripts/test-update-news.mjs || true
+
+      # ============================================================
+      # 9. Validate Homepage
+      # ============================================================
+
+      - name: Validate homepage
+        run: node scripts/validate-homepage.mjs
+
+      # ============================================================
+      # 10. Commit changes back to PRIVATE repository
+      # ============================================================
+
+      - name: Commit generated feed
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: 'Update generated feed'
+          file_pattern: >-
+            data/news.json
+            data/stories-index.json
+            data/stories/*.json
+            data/ai-cache.json
+            stories/*.html
+            assets/favicon.svg
+            sitemap.xml
+            robots.txt
+
+      # ============================================================
+      # 11. Install Wrangler
+      # ============================================================
+
+      - name: Install Wrangler
+        run: npm install --no-save wrangler@4
+
+      # ============================================================
+      # 12. Create / Update D1 schema
+      # ============================================================
+
+      - name: Create D1 schema
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --file=d1/schema.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 13. Generate D1 SQL
+      # ============================================================
+
+      - name: Generate SQL
+        run: node scripts/generate-d1-sql.mjs
+
+      - name: Show generated SQL files
+        run: |
+          echo "Generated SQL files:"
+          ls -lh generated/
+
+      # ============================================================
+      # 14. Upload stories into D1
+      # ============================================================
+
+      - name: Upload stories to D1
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+
+          shopt -s nullglob
+
+          files=(generated/stories-*.sql)
+
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No generated/stories-*.sql files found"
+            exit 1
+          fi
+
+          echo "Found ${#files[@]} SQL file(s)"
+
+          for file in "${files[@]}"; do
+
+            echo "========================================"
+            echo "Importing: $file"
+            echo "========================================"
+
+            success=false
+
+            for attempt in 1 2 3 4 5; do
+
+              echo "Attempt $attempt/5"
+
+              if npx wrangler d1 execute story-homepage \
+                --remote \
+                --file="$file"; then
+
+                success=true
+                echo "Successfully imported: $file"
+                break
+              fi
+
+              if [ "$attempt" -lt 5 ]; then
+                delay=$((attempt * 10))
+                echo "Import failed. Retrying in ${delay}s..."
+                sleep "$delay"
+              fi
+
+            done
+
+            if [ "$success" != "true" ]; then
+              echo "Failed to import: $file"
+              exit 1
+            fi
+
+          done
+
+      # ============================================================
+      # 15. Verify stories table
+      # ============================================================
+
+      - name: Verify stories table
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="SELECT COUNT(*) AS total_stories FROM stories;"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 16. Drop existing FTS index
+      # ============================================================
+
+      - name: Drop old FTS index
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="DROP TABLE IF EXISTS stories_fts;"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 17. Recreate FTS5 table
+      # ============================================================
+
+      - name: Create FTS index
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="CREATE VIRTUAL TABLE stories_fts USING fts5(
+              title,
+              description,
+              topic,
+              tags,
+              short_summary,
+              agreement_summary,
+              change_summary,
+              content='stories',
+              content_rowid='id'
+            );"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 18. Rebuild FTS
+      # ============================================================
+
+      - name: Rebuild FTS index
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="INSERT INTO stories_fts(stories_fts) VALUES('rebuild');"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 19. Verify FTS
+      # ============================================================
+
+      - name: Verify FTS search
+        run: |
+          echo "Checking FTS index..."
+
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="SELECT COUNT(*) AS matching_stories
+                       FROM stories_fts
+                       WHERE stories_fts MATCH 'India';"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ============================================================
+      # 20. Deploy Cloudflare Worker
+      # ============================================================
+
+      - name: Deploy to Cloudflare
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
