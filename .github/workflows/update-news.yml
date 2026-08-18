@@ -67,7 +67,7 @@ jobs:
       - name: Checkout private Everyside repository
         uses: actions/checkout@v6
         with:
-          repository: YOUR_USERNAME/YOUR_PRIVATE_REPO
+          repository: clay-36/clay-36.github.io
           ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           fetch-depth: 0
