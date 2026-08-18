@@ -13,12 +13,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: everyside-feed-refresh
+  group: feed-refresh
   cancel-in-progress: false
 
 jobs:
   update-feed:
-    name: Update Everyside Feed
+    name: Update Feed
     runs-on: ubuntu-latest
 
     # If your secrets are stored in the "Prod" environment
