@@ -1,9 +1,9 @@
 name: Update daily news feed
 
 on:
-  #schedule:
+  schedule:
     # Every 2 hours at minute 20
-   # - cron: '20 */2 * * *'
+    - cron: '20 */2 * * *'
 
   workflow_dispatch:
 
@@ -174,15 +174,7 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'Update generated feed'
-          file_pattern: >-
-            data/news.json
-            data/stories-index.json
-            data/stories/*.json
-            data/ai-cache.json
-            stories/*.html
-            assets/favicon.svg
-            sitemap.xml
-            robots.txt
+          file_pattern: data/story-data/**/*.json data/stories-index.json data/stories/*.json data/ai-cache/*.json assets/favicon.svg sitemap.xml robots.txt
 
       # ============================================================
       # 11. Install Wrangler
