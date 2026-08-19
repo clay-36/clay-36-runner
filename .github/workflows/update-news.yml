@@ -1,9 +1,9 @@
 name: Update daily news feed
 
 on:
-  schedule:
+  #schedule:
     # Every 2 hours at minute 20
-    - cron: '20 */2 * * *'
+   # - cron: '20 */2 * * *'
 
   workflow_dispatch:
 
