@@ -1,14 +1,10 @@
-name: Update daily news feed
+name: Update daily news feed (delta D1)
 
 on:
   schedule:
-    # Every 2 hours at minute 20
     - cron: '20 */2 * * *'
-
   workflow_dispatch:
 
-# The workflow repo itself only needs read access.
-# Write access to the PRIVATE repo comes from PRIVATE_REPO_TOKEN.
 permissions:
   contents: read
 
@@ -20,50 +16,31 @@ jobs:
   update-feed:
     name: Update Feed
     runs-on: ubuntu-latest
-
-    # If your secrets are stored in the "Prod" environment
     environment: Prod
 
     env:
-      # ============================================================
-      # Non-secret configuration
-      # ============================================================
-
       DISCOVERY_STORY_CONCURRENCY: 1
       URL_RESOLUTION_CONCURRENCY: 1
       PUPPETEER_GLOBAL_CONCURRENCY: 1
-
       URL_RESOLUTION_TIMEOUT_MS: 45000
       PAGE_CLOSE_TIMEOUT_MS: 3000
       PUPPETEER_SLOT_TIMEOUT_MS: 30000
-
       WORKFLOW_HEARTBEAT_MS: 30000
-
       GEMINI_MODEL: gemini-3-flash-preview
       GEMINI_THINKING_LEVEL: low
       GEMINI_REQUEST_TIMEOUT_MS: 20000
-
       AI_EDITORIAL: 0
-
       FULL_ARTICLE_STORY_CONCURRENCY: 4
       FULL_ARTICLE_FETCH_CONCURRENCY: 10
       FULL_ARTICLE_AI_BATCH_SIZE: 5
       FULL_ARTICLE_STORY_LIMIT: 12
-
       GEMINI_SUMMARY_ATTEMPTS: 1
-
-      # URL resolver
       PUPPETEER_BROWSER_ENABLED: 1
       PUPPETEER_NAV_TIMEOUT_MS: 30000
       PUPPETEER_SETTLE_MS: 2500
       URL_RESOLUTION_VERBOSE: 1
 
     steps:
-
-      # ============================================================
-      # 1. Checkout PRIVATE repository
-      # ============================================================
-
       - name: Checkout private Everyside repository
         uses: actions/checkout@v6
         with:
@@ -73,18 +50,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      # ============================================================
-      # 2. Setup Node
-      # ============================================================
-
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 22
-
-      # ============================================================
-      # 3. Install Puppeteer
-      # ============================================================
 
       - name: Install Puppeteer
         run: npm install puppeteer --no-save
@@ -99,16 +68,10 @@ jobs:
               headless:true,
               args:['--no-sandbox','--disable-setuid-sandbox']
             });
-
             console.log('Chrome launched successfully');
             console.log('Version:', await b.version());
-
             await b.close();
           })"
-
-      # ============================================================
-      # 4. Check Gemini
-      # ============================================================
 
       - name: Check Gemini configuration
         env:
@@ -119,23 +82,16 @@ jobs:
           else
             echo "GEMINI_API_KEY not found; using local summaries"
           fi
-
           echo "Full-article model: $GEMINI_MODEL ($GEMINI_THINKING_LEVEL thinking)"
           echo "Puppeteer resolver: $PUPPETEER_BROWSER_ENABLED"
           echo "Puppeteer timeout: $PUPPETEER_NAV_TIMEOUT_MS ms"
 
-      # ============================================================
-      # 5. Update News
-      # ============================================================
-
       - name: Update news
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node scripts/update-news.mjs
-
-      # ============================================================
-      # 6. Branding / Analytics
-      # ============================================================
+        run: |
+          echo "D1_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          node scripts/update-news.mjs
 
       - name: Ensure page branding and analytics
         run: |
@@ -143,32 +99,16 @@ jobs:
           node scripts/add-story-footers.mjs
           node scripts/add-analytics-events.mjs
 
-      # ============================================================
-      # 7. Pagination
-      # ============================================================
-
       - name: Synchronize generated pagination
         run: node scripts/sync-story-pagination.mjs
-
-      # ============================================================
-      # 8. Tests
-      # ============================================================
 
       - name: Test generated story consistency
         run: |
           node scripts/test-full-article-analysis.mjs || true
           node scripts/test-update-news.mjs || true
 
-      # ============================================================
-      # 9. Validate Homepage
-      # ============================================================
-
       - name: Validate homepage
         run: node scripts/validate-homepage.mjs
-
-      # ============================================================
-      # 10. Commit changes back to PRIVATE repository
-      # ============================================================
 
       - name: Commit generated feed
         uses: stefanzweifel/git-auto-commit-action@v7
@@ -176,16 +116,8 @@ jobs:
           commit_message: 'Update generated feed'
           file_pattern: data/story-data/**/*.json data/stories-index.json data/stories/*.json data/ai-cache/*.json assets/favicon.svg sitemap.xml robots.txt
 
-      # ============================================================
-      # 11. Install Wrangler
-      # ============================================================
-
       - name: Install Wrangler
         run: npm install --no-save wrangler@4
-
-      # ============================================================
-      # 12. Create / Update D1 schema
-      # ============================================================
 
       - name: Create D1 schema
         run: |
@@ -196,59 +128,55 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # ============================================================
-      # 13. Generate D1 SQL
-      # ============================================================
+      # This runs before delta upserts so an empty/new FTS table is rebuilt
+      # from all existing stories exactly once.
+      - name: Initialize FTS only when empty
+        run: |
+          npx wrangler d1 execute story-homepage \
+            --remote \
+            --command="INSERT INTO stories_fts(stories_fts)
+                       SELECT 'rebuild'
+                       WHERE NOT EXISTS (SELECT 1 FROM stories_fts LIMIT 1);"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Generate SQL
-        run: node scripts/generate-d1-sql.mjs
+      - name: Generate D1 delta SQL
+        run: node scripts/generate-d1-sql.mjs --since "$D1_BASE_SHA"
 
       - name: Show generated SQL files
         run: |
-          echo "Generated SQL files:"
-          ls -lh generated/
+          shopt -s nullglob
+          files=(generated/stories-*.sql)
+          echo "Generated ${#files[@]} D1 delta chunk(s)"
+          ((${#files[@]} == 0)) || ls -lh "${files[@]}"
 
-      # ============================================================
-      # 14. Upload stories into D1
-      # ============================================================
-
-      - name: Upload stories to D1
+      - name: Upload changed stories to D1
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -e
-
           shopt -s nullglob
-
           files=(generated/stories-*.sql)
 
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No generated/stories-*.sql files found"
-            exit 1
+          if ((${#files[@]} == 0)); then
+            echo "No story rows changed; skipping D1 writes."
+            exit 0
           fi
 
-          echo "Found ${#files[@]} SQL file(s)"
-
+          echo "Uploading ${#files[@]} changed SQL chunk(s)"
           for file in "${files[@]}"; do
-
-            echo "========================================"
-            echo "Importing: $file"
-            echo "========================================"
-
+            echo "Importing $file"
             success=false
 
             for attempt in 1 2 3 4 5; do
-
               echo "Attempt $attempt/5"
-
               if npx wrangler d1 execute story-homepage \
                 --remote \
                 --file="$file"; then
-
                 success=true
-                echo "Successfully imported: $file"
                 break
               fi
 
@@ -257,19 +185,13 @@ jobs:
                 echo "Import failed. Retrying in ${delay}s..."
                 sleep "$delay"
               fi
-
             done
 
             if [ "$success" != "true" ]; then
               echo "Failed to import: $file"
               exit 1
             fi
-
           done
-
-      # ============================================================
-      # 15. Verify stories table
-      # ============================================================
 
       - name: Verify stories table
         run: |
@@ -280,63 +202,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # ============================================================
-      # 16. Drop existing FTS index
-      # ============================================================
-
-      - name: Drop old FTS index
-        run: |
-          npx wrangler d1 execute story-homepage \
-            --remote \
-            --command="DROP TABLE IF EXISTS stories_fts;"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # ============================================================
-      # 17. Recreate FTS5 table
-      # ============================================================
-
-      - name: Create FTS index
-        run: |
-          npx wrangler d1 execute story-homepage \
-            --remote \
-            --command="CREATE VIRTUAL TABLE stories_fts USING fts5(
-              title,
-              description,
-              topic,
-              tags,
-              short_summary,
-              agreement_summary,
-              change_summary,
-              content='stories',
-              content_rowid='id'
-            );"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # ============================================================
-      # 18. Rebuild FTS
-      # ============================================================
-
-      - name: Rebuild FTS index
-        run: |
-          npx wrangler d1 execute story-homepage \
-            --remote \
-            --command="INSERT INTO stories_fts(stories_fts) VALUES('rebuild');"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # ============================================================
-      # 19. Verify FTS
-      # ============================================================
-
       - name: Verify FTS search
         run: |
-          echo "Checking FTS index..."
-
           npx wrangler d1 execute story-homepage \
             --remote \
             --command="SELECT COUNT(*) AS matching_stories
@@ -346,11 +213,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # ============================================================
-      # 20. Deploy Cloudflare Worker
-      # ============================================================
-
-      - name: Deploy to Cloudflare
+      - name: Deploy Cloudflare Worker
         run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
