@@ -1,4 +1,4 @@
-name: Update daily news feed (delta D1)
+name: Update daily news feed (delta D1). This workflow will run on different repo
 
 on:
   schedule:
@@ -27,9 +27,15 @@ jobs:
       PUPPETEER_SLOT_TIMEOUT_MS: 30000
       WORKFLOW_HEARTBEAT_MS: 30000
       GEMINI_MODEL: gemini-3-flash-preview
+      GEMINI_FALLBACK_MODEL: gemini-3.5-flash-lite
       GEMINI_THINKING_LEVEL: low
       GEMINI_REQUEST_TIMEOUT_MS: 20000
-      AI_EDITORIAL: 0
+      AI_EDITORIAL: 1
+      AI_EDITORIAL_STORY_LIMIT: 20
+      AI_MIN_CONFIDENCE: 0.75
+      AI_RETRY_COOLDOWN_HOURS: 6
+      AI_CACHE_ROOT: /tmp/everyside-ai-cache
+      FULL_ARTICLE_CACHE_PATH: /tmp/everyside-full-article-cache.json
       FULL_ARTICLE_STORY_CONCURRENCY: 4
       FULL_ARTICLE_FETCH_CONCURRENCY: 10
       FULL_ARTICLE_AI_BATCH_SIZE: 5
@@ -114,7 +120,7 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: 'Update generated feed'
-          file_pattern: data/story-data/**/*.json data/stories-index.json data/stories/*.json data/ai-cache/*.json assets/favicon.svg sitemap.xml robots.txt
+          file_pattern: data/story-data/**/*.json data/stories-index.json data/stories/*.json assets/favicon.svg sitemap.xml robots.txt
 
       - name: Install Wrangler
         run: npm install --no-save wrangler@4
