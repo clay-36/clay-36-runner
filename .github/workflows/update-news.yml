@@ -148,7 +148,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Generate D1 delta SQL
-        run: node scripts/generate-d1-sql.mjs --since "$D1_BASE_SHA"
+        run: node scripts/generate-d1-compact-sql.mjs --since "$D1_BASE_SHA"
 
       - name: Show generated SQL files
         run: |
