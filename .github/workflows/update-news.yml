@@ -35,8 +35,8 @@ jobs:
       AI_EDITORIAL_STORY_LIMIT: 20
       AI_MIN_CONFIDENCE: 0.75
       AI_RETRY_COOLDOWN_HOURS: 6
-      AI_CACHE_ROOT: /tmp/everyside-ai-cache
-      FULL_ARTICLE_CACHE_PATH: /tmp/everyside-full-article-cache.json
+      AI_CACHE_ROOT: /tmp/es-ai-cache
+      FULL_ARTICLE_CACHE_PATH: /tmp/es-full-article-cache.json
       FULL_ARTICLE_STORY_CONCURRENCY: 4
       FULL_ARTICLE_FETCH_CONCURRENCY: 10
       FULL_ARTICLE_AI_BATCH_SIZE: 5
@@ -48,7 +48,7 @@ jobs:
       URL_RESOLUTION_VERBOSE: 1
 
     steps:
-      - name: Checkout private Everyside repository
+      - name: Checkout private ES repository
         uses: actions/checkout@v6
         with:
           repository: clay-36/clay-36.github.io
