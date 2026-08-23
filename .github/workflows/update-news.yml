@@ -45,6 +45,7 @@ jobs:
       PUPPETEER_BROWSER_ENABLED: 1
       PUPPETEER_NAV_TIMEOUT_MS: 30000
       PUPPETEER_SETTLE_MS: 2500
+      OPEN_AI_API_KEY: ${{ secrets.OPEN_AI_API_KEY }}
       URL_RESOLUTION_VERBOSE: 1
 
     steps:
@@ -83,7 +84,13 @@ jobs:
       - name: Check Gemini configuration
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPEN_AI_API_KEY: ${{ secrets.OPEN_AI_API_KEY }}
         run: |
+          if [ -n "$OPEN_AI_API_KEY" ]; then
+            echo "OPEN_AI_API_KEY found"
+          else
+            echo "OPEN_AI_API_KEY not found; Gemini may be used as backup"
+          fi
           if [ -n "$GEMINI_API_KEY" ]; then
             echo "GEMINI_API_KEY found"
           else
@@ -95,6 +102,7 @@ jobs:
 
       - name: Update news
         env:
+          OPEN_AI_API_KEY: ${{ secrets.OPEN_AI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           echo "D1_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
