@@ -28,6 +28,8 @@ jobs:
       PUPPETEER_SLOT_TIMEOUT_MS: 30000
       WORKFLOW_HEARTBEAT_MS: 30000
       GEMINI_MODEL: gemini-3.5-flash-lite
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENAI_MODEL: gpt-5-mini
       GEMINI_FALLBACK_MODEL: gemini-3-flash-preview
       GEMINI_THINKING_LEVEL: low
       GEMINI_REQUEST_TIMEOUT_MS: 30000
