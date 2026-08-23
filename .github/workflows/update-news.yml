@@ -1,4 +1,4 @@
-name: Update daily news feed (delta D1). This workflow will run on different repo
+name: Update daily news feed
 
 on:
   schedule:
