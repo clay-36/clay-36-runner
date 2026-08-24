@@ -131,7 +131,10 @@ jobs:
           node scripts/test-update-news.mjs || true
 
       - name: Validate homepage
-        run: node scripts/validate-homepage.mjs
+        run: |
+          node --test scripts/test-story-dedup.mjs
+          node scripts/validate-story-duplicates.mjs
+          node scripts/validate-homepage.mjs
 
       - name: Commit generated feed
         uses: stefanzweifel/git-auto-commit-action@v7
