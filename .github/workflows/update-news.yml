@@ -49,6 +49,12 @@ jobs:
       PUPPETEER_SETTLE_MS: 2500
       OPEN_AI_API_KEY: ${{ secrets.OPEN_AI_API_KEY }}
       URL_RESOLUTION_VERBOSE: 1
+      RSS_PROXY_URL: ${{ secrets.RSS_PROXY_URL }}
+      RSS_PROXY_TOKEN: ${{ secrets.RSS_PROXY_TOKEN }}
+      RSS_PROXY_TIMEOUT_MS: 20000
+      PUBLISHER_RSS_CONCURRENCY: 8
+      RSS_MAX_BODY_BYTES: 5000000
+      RSS_DISCOVERY_WINDOW_HOURS: 6
 
     steps:
       - name: Checkout private ES repository
