@@ -33,12 +33,19 @@ jobs:
       GEMINI_FALLBACK_MODEL: gemini-3-flash-preview
       GEMINI_THINKING_LEVEL: low
       GEMINI_REQUEST_TIMEOUT_MS: 30000
+      GEMINI_MAX_REQUESTS: 12
       AI_EDITORIAL: 1
       AI_EDITORIAL_STORY_LIMIT: 20
       AI_MIN_CONFIDENCE: 0.75
       AI_RETRY_COOLDOWN_HOURS: 6
       AI_CACHE_ROOT: /tmp/es-ai-cache
       FULL_ARTICLE_CACHE_PATH: /tmp/es-full-article-cache.json
+      RSS_PROXY_URL: ${{ secrets.RSS_PROXY_URL }}
+      RSS_PROXY_TOKEN: ${{ secrets.RSS_PROXY_TOKEN }}
+      RSS_PROXY_TIMEOUT_MS: 20000
+      PUBLISHER_RSS_CONCURRENCY: 8
+      RSS_MAX_BODY_BYTES: 5000000
+      RSS_DISCOVERY_WINDOW_HOURS: 6
       FULL_ARTICLE_STORY_CONCURRENCY: 4
       FULL_ARTICLE_FETCH_CONCURRENCY: 10
       FULL_ARTICLE_AI_BATCH_SIZE: 5
@@ -49,12 +56,6 @@ jobs:
       PUPPETEER_SETTLE_MS: 2500
       OPEN_AI_API_KEY: ${{ secrets.OPEN_AI_API_KEY }}
       URL_RESOLUTION_VERBOSE: 1
-      RSS_PROXY_URL: ${{ secrets.RSS_PROXY_URL }}
-      RSS_PROXY_TOKEN: ${{ secrets.RSS_PROXY_TOKEN }}
-      RSS_PROXY_TIMEOUT_MS: 20000
-      PUBLISHER_RSS_CONCURRENCY: 8
-      RSS_MAX_BODY_BYTES: 5000000
-      RSS_DISCOVERY_WINDOW_HOURS: 6
 
     steps:
       - name: Checkout private ES repository
@@ -70,6 +71,16 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+
+      - name: Restore AI caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/es-ai-cache
+            /tmp/es-full-article-cache.json
+          key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            es-ai-v1-
 
       - name: Install Puppeteer
         run: npm install puppeteer --no-save
@@ -115,6 +126,15 @@ jobs:
         run: |
           echo "D1_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           node scripts/update-news.mjs
+
+      - name: Save AI caches
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/es-ai-cache
+            /tmp/es-full-article-cache.json
+          key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Ensure page branding and analytics
         run: |
