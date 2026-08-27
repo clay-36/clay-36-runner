@@ -72,15 +72,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Restore AI caches
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            /tmp/es-ai-cache
-            /tmp/es-full-article-cache.json
-          key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            es-ai-v1-
+      # - name: Restore AI caches
+      #   uses: actions/cache/restore@v4
+      #   with:
+      #     path: |
+      #       /tmp/es-ai-cache
+      #       /tmp/es-full-article-cache.json
+      #     key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      #     restore-keys: |
+      #       es-ai-v1-
 
       - name: Install Puppeteer
         run: npm install puppeteer --no-save
@@ -127,14 +127,14 @@ jobs:
           echo "D1_BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           node scripts/update-news.mjs
 
-      - name: Save AI caches
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            /tmp/es-ai-cache
-            /tmp/es-full-article-cache.json
-          key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      # - name: Save AI caches
+      #   if: always()
+      #   uses: actions/cache/save@v4
+      #   with:
+      #     path: |
+      #       /tmp/es-ai-cache
+      #       /tmp/es-full-article-cache.json
+      #     key: es-ai-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Ensure page branding and analytics
         run: |
